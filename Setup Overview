@@ -1,0 +1,20 @@
+Setup collects system-level metrics such as CPU, memory, and disk usage from Kubernetes nodes. 
+The Node Exporter exposes these metrics, and a CronJob is used to fetch them on every 5 minutes.
+The collected metrics are stored in a Persistent Volume, ensuring data persists even if Pods restart.
+
+Dockerfile: Creates a container that runs a cron job to fetch metrics and store them.
+
+Bash Script: Script that fetches metrics from Node Exporter and saves them in a file.
+
+Kubernetes CronJob: Sets up a cron job in Kubernetes to run the script every 5 minutes.
+
+Node Exporter DaemonSet: Deploys Node Exporter on every Kubernetes node to expose system metrics.
+
+Node Exporter Service: Kubernetes Service to expose Node Exporter to other pods in the cluster. It allows the cron job to access the metrics endpoint.
+
+Persistent Volume: PersistentVolume (PV) for storing the metrics data.
+
+Persistent Volume Claim: PersistentVolumeClaim (PVC) to request storage from the Persistent Volume.
+
+Log Storage Pod: This optional pod is used to inspect the stored metrics files.
+
