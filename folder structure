@@ -1,0 +1,9 @@
+k8s-demo/
+├── cronjob.yaml           
+├── cron.sh               
+├── daemonset.yaml         
+├── Dockerfile             
+├── logspod.yaml            
+├── metrics-pvc.yaml        
+├── metrics-pv.yaml         
+├── service.yaml            
