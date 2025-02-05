@@ -1,0 +1,146 @@
+Dockerfile
+
+This Dockerfile creates a container image to collect Kubernetes node metrics via the Node Exporter and save them to a persistent location, using a cron job to periodically fetch and store the metrics.
+--------------------------
+# Ubuntu 20.04 base image
+FROM ubuntu:20.04
+# Update apt package list, install curl, cron, and remove apt cache to reduce image size
+RUN apt-get update && apt-get install -y \
+    curl \
+    cron \
+    && rm -rf /var/lib/apt/lists/*
+COPY cron.sh /cron.sh
+RUN chmod +x /cron.sh
+RUN echo "*/5 * * * * /cron.sh" > /etc/cron.d/cron-job
+RUN chmod 0644 /etc/cron.d/cron-job
+RUN mkdir -p /metrics
+RUN chmod -R 777 /metrics
+CMD ["cron", "-f"]
+-------------------------------------
+
+--cron.sh (Bash Script)----
+This script fetches Node Exporter metrics from a URL, stores them in a timestamped file, and logs the success of the operation to a log file. It runs every 5 minutes as per the cron job configuration.
+----------------------------------
+#!/bin/bash
+OUTPUT_DIR="/metrics"
+mkdir -p $OUTPUT_DIR
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)_$RANDOM
+OUTPUT_FILE="$OUTPUT_DIR/metrics_$TIMESTAMP.txt"
+NODE_EXPORTER_URL="http://node-exporter.default.svc.cluster.local:9100/metrics"
+echo "Fetching metrics from $NODE_EXPORTER_URL at $(date)" > "$OUTPUT_FILE"
+curl -s "$NODE_EXPORTER_URL" >> "$OUTPUT_FILE"
+-------------------------------------------
+cronjob.yaml (Kubernetes CronJob)
+
+A CronJob in Kubernetes that runs every 5 minutes to collect metrics from a Node Exporter instance and stores the collected data in a PersistentVolume.
+------------------------------------
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: node-metrics-cron
+spec:
+  schedule: "*/5 * * * *"  # Run every 5 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: node-metrics-collector
+              image: public.ecr.aws/t7s4w5c6/demo:latest
+              command: ["/bin/sh", "-c", "/cron.sh"]  
+              script
+              volumeMounts:
+                - mountPath: /metrics
+                  name: metrics-volume
+          restartPolicy: OnFailure  
+          volumes:
+            - name: metrics-volume
+              persistentVolumeClaim:
+                claimName: metrics-pvc 
+----------------------------------------------------------------------
+daemonset.yaml (Node Exporter DaemonSet)
+
+The DaemonSet runs a Pod with the Node Exporter on every node of the cluster, allowing the collection of node-level metrics. The Node Exporter will expose metrics on port 9100.
+----------------------------
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter  
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:latest  
+          ports:
+            - containerPort: 9100
+              hostPort: 9100
+              protocol: TCP  
+-----------------------------------------------------
+metrics-pv.yaml (Persistent Volume)
+
+A PersistentVolume (PV) is defined to store metrics data from the Node Exporter, which will be mounted by the Pods that collect the metrics. This is using a hostPath for demonstration purposes.
+------------------------------------------------
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: metrics-pv
+spec:
+  capacity:
+    storage: 1Gi  
+  accessModes:
+    - ReadWriteOnce  
+  hostPath:
+    path: "/mnt/data/metrics"  
+    type: DirectoryOrCreate  
+  persistentVolumeReclaimPolicy: Retain  
+---------------------------------------
+service.yaml (Node Exporter Service)
+
+This service exposes the Node Exporter metrics on port 9100. It allows other Pods to access Node Exporter metrics via the ClusterIP.
+------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: default
+spec:
+  selector:
+    app: node-exporter 
+  ports:
+    - protocol: TCP
+      port: 9100  
+      targetPort: 9100  
+  type: ClusterIP  
+---------------------------------------------
+logs-pod.yaml (Log Storage Pod)
+
+This Pod is designed to store the metrics files created by the cron job. The Pod mounts the PVC, which allows it to access the metrics data and retain it even after the Pod terminates.
+--------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: logs-pod
+spec:
+  containers:
+    - name: debug-container
+      image: busybox  
+      command: ["/bin/sh", "-c", "sleep 3600"]  
+      volumeMounts:
+        - mountPath: /metrics  
+          name: metrics-volume
+  volumes:
+    - name: metrics-volume
+      persistentVolumeClaim:
+        claimName: metrics-pvc  
+  restartPolicy: Never  
+--------------------------------------------------------
+Using this above files metrics are continuously collected by the Node Exporter, stored in a persistent volume, and saved by the CronJob every 5 minutes. The log storage Pod ensures that the metrics are retained and available for further analysis in logs pod.
+
