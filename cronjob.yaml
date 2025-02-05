@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: node-metrics-cron
+spec:
+  schedule: "*/5 * * * *"  # Run every 5 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: node-metrics-collector
+              image: public.ecr.aws/t7s4w5c6/demo:latest
+              command: ["/bin/sh", "-c", "/cron.sh"]  
+              script
+              volumeMounts:
+                - mountPath: /metrics
+                  name: metrics-volume
+          restartPolicy: OnFailure  
+          volumes:
+            - name: metrics-volume
+              persistentVolumeClaim:
+                claimName: metrics-pvc
